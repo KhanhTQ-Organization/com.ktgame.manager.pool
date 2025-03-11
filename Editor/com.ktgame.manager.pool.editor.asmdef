@@ -1,0 +1,20 @@
+{
+    "name": "com.ktgame.manager.pool.editor",
+    "rootNamespace": "com.ktgame.manager.pool.editor",
+    "references": [
+        "GUID:750019d6646407241ae2016ad4c4dbe0",
+        "GUID:750019d6646407241ae2016ad4c4dbe0",
+        "com.ktgame.manager.pool"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

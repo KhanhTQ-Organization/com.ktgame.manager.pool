@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/KhanhTQ-hub/com.ktgame.manager.pool/compare/v1.0.0...v1.0.1) (2025-03-11)
+
+
+### Bug Fixes
+
+* release 1.0.1 ([2752057](https://github.com/KhanhTQ-hub/com.ktgame.manager.pool/commit/275205734f6031a1d2914fdfa6b91a1d612d10ff))
+
 # 1.0.0 (2025-03-11)
 
 

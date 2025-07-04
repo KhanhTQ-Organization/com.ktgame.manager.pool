@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/KhanhTQ-Organization/com.ktgame.manager.pool/compare/v1.0.1...v1.0.2) (2025-07-04)
+
+
+### Bug Fixes
+
+* scope ([43466fa](https://github.com/KhanhTQ-Organization/com.ktgame.manager.pool/commit/43466fa2bd8073f408e5882fd4e7e5c1e8b3bc83))
+
 ## [1.0.1](https://github.com/KhanhTQ-hub/com.ktgame.manager.pool/compare/v1.0.0...v1.0.1) (2025-03-11)
 
 

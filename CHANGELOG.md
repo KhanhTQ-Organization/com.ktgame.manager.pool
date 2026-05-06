@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/KhanhTQ-Organization/com.ktgame.manager.pool/compare/v1.0.2...v1.0.3) (2026-05-06)
+
+
+### Bug Fixes
+
+* rl ([222b147](https://github.com/KhanhTQ-Organization/com.ktgame.manager.pool/commit/222b147b55407686774343fca2d3a513aab2f5ee))
+
 ## [1.0.2](https://github.com/KhanhTQ-Organization/com.ktgame.manager.pool/compare/v1.0.1...v1.0.2) (2025-07-04)
 
 

@@ -34,7 +34,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = Addressables.InstantiateAsync(_key).WaitForCompletion();
 			}
@@ -52,7 +58,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = Addressables.InstantiateAsync(_key, parent).WaitForCompletion();
 			}
@@ -70,7 +82,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = Addressables.InstantiateAsync(_key, position, rotation).WaitForCompletion();
 			}
@@ -89,7 +107,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = Addressables.InstantiateAsync(_key, position, rotation, parent).WaitForCompletion();
 			}
@@ -107,6 +131,8 @@ namespace com.ktgame.manager.pool
 		public void Despawn(GameObject instance)
 		{
 			ThrowIfDisposed();
+
+			if (instance == null) return;
 
 			_stack.Push(instance);
 			instance.SetActive(false);

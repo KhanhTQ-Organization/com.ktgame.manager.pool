@@ -32,7 +32,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab);
 			}
@@ -50,7 +56,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab, parent);
 			}
@@ -68,7 +80,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab, position, rotation);
 			}
@@ -87,7 +105,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab, position, rotation, parent);
 			}
@@ -106,12 +130,14 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			_stack.Push(obj); if (Container != null)
-            {
-                obj.transform.SetParent(Container.transform);
-            }
-            obj.SetActive(false);
-			
+			if (obj == null) return;
+
+			_stack.Push(obj);
+			if (Container != null)
+			{
+				obj.transform.SetParent(Container.transform);
+			}
+			obj.SetActive(false);
 
 			PoolCallbackHelper.InvokeOnDespawn(obj);
 		}
@@ -140,7 +166,23 @@ namespace com.ktgame.manager.pool
 
 			while (_stack.TryPop(out var obj))
 			{
-				UnityEngine.Object.Destroy(obj);
+				if (obj != null)
+				{
+					UnityEngine.Object.Destroy(obj);
+				}
+			}
+		}
+
+		public void Cull(int maxCapacity)
+		{
+			ThrowIfDisposed();
+
+			while (_stack.Count > maxCapacity)
+			{
+				if (_stack.TryPop(out var obj) && obj != null)
+				{
+					UnityEngine.Object.Destroy(obj);
+				}
 			}
 		}
 

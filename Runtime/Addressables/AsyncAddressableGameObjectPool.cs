@@ -36,7 +36,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = await Addressables.InstantiateAsync(_key).ToUniTask(cancellationToken: cancellationToken);
 			}
@@ -54,7 +60,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = await Addressables.InstantiateAsync(_key, parent).ToUniTask(cancellationToken: cancellationToken);
 			}
@@ -72,7 +84,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = await Addressables.InstantiateAsync(_key, position, rotation).ToUniTask(cancellationToken: cancellationToken);
 			}
@@ -91,7 +109,13 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			if (!_stack.TryPop(out var obj))
+			GameObject obj = null;
+			while (_stack.Count > 0 && obj == null)
+			{
+				obj = _stack.Pop();
+			}
+
+			if (obj == null)
 			{
 				obj = await Addressables.InstantiateAsync(_key, position, rotation, parent);
 			}
@@ -110,6 +134,8 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
+			if (instance == null) return;
+
 			_stack.Push(instance);
 			instance.SetActive(false);
 			if (Container != null)
@@ -126,7 +152,10 @@ namespace com.ktgame.manager.pool
 
 			while (_stack.TryPop(out var obj))
 			{
-				Addressables.ReleaseInstance(obj);
+				if (obj != null)
+				{
+					Addressables.ReleaseInstance(obj);
+				}
 			}
 		}
 
@@ -150,7 +179,9 @@ namespace com.ktgame.manager.pool
 
 		public void Dispose()
 		{
-			throw new NotImplementedException();
+			ThrowIfDisposed();
+			Clear();
+			_isDisposed = true;
 		}
 
 		[HideInCallstack, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]

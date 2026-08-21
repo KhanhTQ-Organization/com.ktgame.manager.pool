@@ -33,12 +33,29 @@ namespace com.ktgame.manager.pool
 					{
 						var pool = GetOrCreatePool(preset.Prefab, preset.Capacity);
 						pool.Prewarm(preset.PreloadSize);
+						if (preset.CullInterval > 0f)
+						{
+							StartCullingTask(pool, preset).Forget();
+						}
 					}
 				}
 			}
 
 			IsInitialized = true;
 			return UniTask.CompletedTask;
+		}
+
+		private async UniTaskVoid StartCullingTask(GameObjectPool pool, PoolPreset preset)
+		{
+			var cancellationToken = this.GetCancellationTokenOnDestroy();
+			while (!cancellationToken.IsCancellationRequested && !pool.IsDisposed)
+			{
+				await UniTask.Delay(TimeSpan.FromSeconds(preset.CullInterval), cancellationToken: cancellationToken);
+				if (!pool.IsDisposed)
+				{
+					pool.Cull(preset.MaxCapacity);
+				}
+			}
 		}
 
 		public GameObject Spawn(GameObject prefab)
@@ -50,7 +67,7 @@ namespace com.ktgame.manager.pool
 
 			var pool = GetOrCreatePool(prefab);
 			var obj = pool.Spawn();
-			_injector.Resolve(obj);
+			_injector?.Resolve(obj);
 			_cloneReferences.Add(obj, pool);
 			return obj;
 		}
@@ -64,7 +81,7 @@ namespace com.ktgame.manager.pool
 
 			var pool = GetOrCreatePool(prefab);
 			var obj = pool.Spawn(parent);
-			_injector.Resolve(obj);
+			_injector?.Resolve(obj);
 			_cloneReferences.Add(obj, pool);
 			return obj;
 		}
@@ -78,7 +95,7 @@ namespace com.ktgame.manager.pool
 
 			var pool = GetOrCreatePool(original);
 			var obj = pool.Spawn(position, rotation);
-			_injector.Resolve(obj);
+			_injector?.Resolve(obj);
 			_cloneReferences.Add(obj, pool);
 			return obj;
 		}
@@ -92,7 +109,7 @@ namespace com.ktgame.manager.pool
 
 			var pool = GetOrCreatePool(original);
 			var obj = pool.Spawn(position, rotation, parent);
-			_injector.Resolve(obj);
+			_injector?.Resolve(obj);
 			_cloneReferences.Add(obj, pool);
 			return obj;
 		}

@@ -11,7 +11,7 @@ namespace com.ktgame.manager.pool
 
 		public ObjectPool(Func<T> createFunc, Action<T> onSpawn = null, Action<T> onDespawn = null, Action<T> onDestroy = null)
 		{
-			_createFunc = createFunc ?? throw new ArgumentException(nameof(createFunc));
+			_createFunc = createFunc ?? throw new ArgumentNullException(nameof(createFunc));
 			_onSpawn = onSpawn;
 			_onDespawn = onDespawn;
 			_onDestroy = onDestroy;

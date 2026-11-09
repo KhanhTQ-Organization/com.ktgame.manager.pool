@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace com.ktgame.manager.pool
 {
@@ -19,29 +20,44 @@ namespace com.ktgame.manager.pool
 		protected virtual void OnDespawn(T instance) { }
 
 		private readonly Stack<T> _stack = new(32);
+		private readonly HashSet<T> _inPool = new(ReferenceComparer<T>.Instance);
 		private bool _isDisposed;
+		
+		public bool Contains(T instance)
+		{
+			return instance != null && _inPool.Contains(instance);
+		}
 
 		public UniTask<T> SpawnAsync(CancellationToken cancellationToken = default)
 		{
 			ThrowIfDisposed();
+
 			if (_stack.TryPop(out var obj))
 			{
-				OnSpawn(obj);
-
-				if (obj is ISpawnable spawnable)
-				{
-					spawnable.OnSpawn();
-				}
-
-				if (obj is IPoolable poolable)
-				{
-					poolable.OnSpawn();
-				}
-
+				_inPool.Remove(obj);
+				InvokeSpawnCallbacks(obj);
 				return new UniTask<T>(obj);
 			}
 
-			return CreateInstanceAsync(cancellationToken);
+			return CreateAndSpawnAsync(cancellationToken);
+		}
+
+		private async UniTask<T> CreateAndSpawnAsync(CancellationToken cancellationToken)
+		{
+			var obj = await CreateInstanceAsync(cancellationToken);
+			InvokeSpawnCallbacks(obj);
+			return obj;
+		}
+
+		private void InvokeSpawnCallbacks(T obj)
+		{
+			if (obj == null)
+			{
+				return;
+			}
+
+			OnSpawn(obj);
+			PoolCallbackHelper.InvokeOnSpawnObject(obj);
 		}
 
 		public void Despawn(T instance)
@@ -53,17 +69,14 @@ namespace com.ktgame.manager.pool
 				throw new ArgumentNullException(nameof(instance));
 			}
 
+			if (!_inPool.Add(instance))
+			{
+				LogWarning($"[Pool] {typeof(T).Name} instance is already in the pool - duplicate Despawn ignored.");
+				return;
+			}
+
 			OnDespawn(instance);
-
-			if (instance is IDespawnable despawnable)
-			{
-				despawnable.OnDespawn();
-			}
-
-			if (instance is IPoolable poolable)
-			{
-				poolable.OnDespawn();
-			}
+			PoolCallbackHelper.InvokeOnDespawnObject(instance);
 
 			_stack.Push(instance);
 		}
@@ -76,6 +89,8 @@ namespace com.ktgame.manager.pool
 			{
 				OnDestroy(obj);
 			}
+
+			_inPool.Clear();
 		}
 
 		public async UniTask PrewarmAsync(int count, CancellationToken cancellationToken = default)
@@ -85,15 +100,36 @@ namespace com.ktgame.manager.pool
 			for (var i = 0; i < count; i++)
 			{
 				var instance = await CreateInstanceAsync(cancellationToken);
-				OnDespawn(instance);
+				if (instance == null)
+				{
+					continue;
+				}
+
+				if (_isDisposed)
+				{
+					OnDestroy(instance);
+					return;
+				}
+				
+				Despawn(instance);
 			}
 		}
 
 		public void Dispose()
 		{
-			ThrowIfDisposed();
+			if (_isDisposed)
+			{
+				return;
+			}
+
 			Clear();
 			_isDisposed = true;
+		}
+
+		[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]
+		private static void LogWarning(string message)
+		{
+			Debug.LogWarning(message);
 		}
 
 		[HideInCallstack, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]

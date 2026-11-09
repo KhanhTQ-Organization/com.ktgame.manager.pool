@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace com.ktgame.manager.pool
 {
@@ -19,30 +20,34 @@ namespace com.ktgame.manager.pool
 		protected virtual void OnDespawn(T instance) { }
 
 		private readonly Stack<T> _stack = new(32);
+		private readonly HashSet<T> _inPool = new(ReferenceComparer<T>.Instance);
 		private bool _isDisposed;
+		
+		public bool Contains(T instance)
+		{
+			return instance != null && _inPool.Contains(instance);
+		}
 
 		public T Spawn()
 		{
 			ThrowIfDisposed();
 
-			if (_stack.TryPop(out var obj))
+			if (!_stack.TryPop(out var obj))
+			{
+				obj = CreateInstance();
+			}
+			else
+			{
+				_inPool.Remove(obj);
+			}
+			
+			if (obj != null)
 			{
 				OnSpawn(obj);
-
-				if (obj is ISpawnable spawnable)
-				{
-					spawnable.OnSpawn();
-				}
-
-				if (obj is IPoolable poolable)
-				{
-					poolable.OnSpawn();
-				}
-
-				return obj;
+				PoolCallbackHelper.InvokeOnSpawnObject(obj);
 			}
 
-			return CreateInstance();
+			return obj;
 		}
 
 		public void Despawn(T obj)
@@ -54,17 +59,14 @@ namespace com.ktgame.manager.pool
 				throw new ArgumentNullException(nameof(obj));
 			}
 
+			if (!_inPool.Add(obj))
+			{
+				LogWarning($"[Pool] {typeof(T).Name} instance is already in the pool - duplicate Despawn ignored.");
+				return;
+			}
+
 			OnDespawn(obj);
-
-			if (obj is IDespawnable despawnable)
-			{
-				despawnable.OnDespawn();
-			}
-
-			if (obj is IPoolable poolable)
-			{
-				poolable.OnDespawn();
-			}
+			PoolCallbackHelper.InvokeOnDespawnObject(obj);
 
 			_stack.Push(obj);
 		}
@@ -76,7 +78,10 @@ namespace com.ktgame.manager.pool
 			for (var i = 0; i < count; i++)
 			{
 				var instance = CreateInstance();
-				Despawn(instance);
+				if (instance != null)
+				{
+					Despawn(instance);
+				}
 			}
 		}
 
@@ -86,15 +91,28 @@ namespace com.ktgame.manager.pool
 
 			while (_stack.TryPop(out var obj))
 			{
+				_inPool.Remove(obj);
 				OnDestroy(obj);
 			}
+
+			_inPool.Clear();
 		}
 
 		public void Dispose()
 		{
-			ThrowIfDisposed();
+			if (_isDisposed)
+			{
+				return;
+			}
+
 			Clear();
 			_isDisposed = true;
+		}
+
+		[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]
+		private static void LogWarning(string message)
+		{
+			Debug.LogWarning(message);
 		}
 
 		[HideInCallstack, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]

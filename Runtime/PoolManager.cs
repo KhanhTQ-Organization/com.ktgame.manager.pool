@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using com.ktgame.core.di;
 using Cysharp.Threading.Tasks;
 using Sirenix.OdinInspector;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace com.ktgame.manager.pool
 {
@@ -20,16 +22,19 @@ namespace com.ktgame.manager.pool
 		[ShowInInspector] private readonly Dictionary<GameObject, GameObjectPool> _pools = new();
 		[ShowInInspector] private readonly Dictionary<GameObject, GameObjectPool> _cloneReferences = new();
 
+		private readonly List<GameObject> _purgeBuffer = new();
+		private int _purgeThreshold = MinPurgeThreshold;
+		private const int MinPurgeThreshold = 64;
+
 		public UniTask Initialize()
 		{
-			_pools.Clear();
-			_cloneReferences.Clear();
+			DisposePools();
 
-			if (_poolPresets.Count > 0)
+			if (_poolPresets != null)
 			{
 				foreach (var preset in _poolPresets)
 				{
-					if (preset.Enabled && preset.Prefab != null)
+					if (preset != null && preset.Enabled && preset.Prefab != null)
 					{
 						var pool = GetOrCreatePool(preset.Prefab, preset.Capacity);
 						pool.Prewarm(preset.PreloadSize);
@@ -50,7 +55,13 @@ namespace com.ktgame.manager.pool
 			var cancellationToken = this.GetCancellationTokenOnDestroy();
 			while (!cancellationToken.IsCancellationRequested && !pool.IsDisposed)
 			{
-				await UniTask.Delay(TimeSpan.FromSeconds(preset.CullInterval), cancellationToken: cancellationToken);
+				var canceled = await UniTask.Delay(TimeSpan.FromSeconds(preset.CullInterval), cancellationToken: cancellationToken)
+					.SuppressCancellationThrow();
+				if (canceled)
+				{
+					return;
+				}
+
 				if (!pool.IsDisposed)
 				{
 					pool.Cull(preset.MaxCapacity);
@@ -66,10 +77,7 @@ namespace com.ktgame.manager.pool
 			}
 
 			var pool = GetOrCreatePool(prefab);
-			var obj = pool.Spawn();
-			_injector?.Resolve(obj);
-			_cloneReferences.Add(obj, pool);
-			return obj;
+			return Register(pool.Spawn(), pool);
 		}
 
 		public GameObject Spawn(GameObject prefab, Transform parent)
@@ -80,10 +88,7 @@ namespace com.ktgame.manager.pool
 			}
 
 			var pool = GetOrCreatePool(prefab);
-			var obj = pool.Spawn(parent);
-			_injector?.Resolve(obj);
-			_cloneReferences.Add(obj, pool);
-			return obj;
+			return Register(pool.Spawn(parent), pool);
 		}
 
 		public GameObject Spawn(GameObject original, Vector3 position, Quaternion rotation)
@@ -94,10 +99,7 @@ namespace com.ktgame.manager.pool
 			}
 
 			var pool = GetOrCreatePool(original);
-			var obj = pool.Spawn(position, rotation);
-			_injector?.Resolve(obj);
-			_cloneReferences.Add(obj, pool);
-			return obj;
+			return Register(pool.Spawn(position, rotation), pool);
 		}
 
 		public GameObject Spawn(GameObject original, Vector3 position, Quaternion rotation, Transform parent)
@@ -108,53 +110,79 @@ namespace com.ktgame.manager.pool
 			}
 
 			var pool = GetOrCreatePool(original);
-			var obj = pool.Spawn(position, rotation, parent);
-			_injector?.Resolve(obj);
-			_cloneReferences.Add(obj, pool);
-			return obj;
+			return Register(pool.Spawn(position, rotation, parent), pool);
 		}
 
 		public TComponent Spawn<TComponent>(TComponent component) where TComponent : Component
 		{
-			var instance = Spawn(component.gameObject).GetComponent<TComponent>();
-			_injector.Resolve(instance);
-			return instance;
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			return ResolveComponent<TComponent>(Spawn(component.gameObject));
 		}
 
 		public TComponent Spawn<TComponent>(TComponent component, Vector3 position, Quaternion rotation, Transform parent)
 			where TComponent : Component
 		{
-			var instance = Spawn(component.gameObject, position, rotation, parent).GetComponent<TComponent>();
-			_injector.Resolve(instance);
-			return instance;
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			return ResolveComponent<TComponent>(Spawn(component.gameObject, position, rotation, parent));
 		}
 
 		public TComponent Spawn<TComponent>(TComponent component, Vector3 position, Quaternion rotation) where TComponent : Component
 		{
-			var instance = Spawn(component.gameObject, position, rotation).GetComponent<TComponent>();
-			_injector.Resolve(instance);
-			return instance;
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			return ResolveComponent<TComponent>(Spawn(component.gameObject, position, rotation));
 		}
 
 		public TComponent Spawn<TComponent>(TComponent component, Transform parent) where TComponent : Component
 		{
-			var instance = Spawn(component.gameObject, parent).GetComponent<TComponent>();
-			_injector.Resolve(instance);
-			return instance;
+			if (component == null)
+			{
+				throw new ArgumentNullException(nameof(component));
+			}
+
+			return ResolveComponent<TComponent>(Spawn(component.gameObject, parent));
 		}
 
 		public void Despawn(GameObject instance)
 		{
-			if (instance == null)
+			if (ReferenceEquals(instance, null))
 			{
 				throw new ArgumentNullException(nameof(instance));
+			}
+
+			if (instance == null)
+			{
+				_cloneReferences.Remove(instance);
+				return;
 			}
 
 			if (_cloneReferences.TryGetValue(instance, out var pool))
 			{
 				_cloneReferences.Remove(instance);
 				pool.Despawn(instance);
+				return;
 			}
+			
+			foreach (var p in _pools.Values)
+			{
+				if (p.Contains(instance))
+				{
+					return;
+				}
+			}
+
+			LogWarning($"[PoolManager] '{instance.name}' was not spawned by this PoolManager - Despawn ignored.", instance);
 		}
 
 		public void Prewarm(GameObject prefab, int count)
@@ -170,8 +198,87 @@ namespace com.ktgame.manager.pool
 
 		public void Dispose()
 		{
+			DisposePools();
+			IsInitialized = false;
+		}
+
+		private GameObject Register(GameObject obj, GameObjectPool pool)
+		{
+			_injector?.Resolve(obj);
+			_cloneReferences[obj] = pool;
+			PurgeDestroyedIfNeeded();
+			return obj;
+		}
+
+		private TComponent ResolveComponent<TComponent>(GameObject obj) where TComponent : Component
+		{
+			var instance = obj.GetComponent<TComponent>();
+			if (instance != null)
+			{
+				_injector?.Resolve(instance);
+			}
+
+			return instance;
+		}
+		
+		private void PurgeDestroyedIfNeeded()
+		{
+			if (_cloneReferences.Count < _purgeThreshold)
+			{
+				return;
+			}
+
+			foreach (var key in _cloneReferences.Keys)
+			{
+				if (key == null)
+				{
+					_purgeBuffer.Add(key);
+				}
+			}
+
+			foreach (var key in _purgeBuffer)
+			{
+				_cloneReferences.Remove(key);
+			}
+
+			_purgeBuffer.Clear();
+			_purgeThreshold = Mathf.Max(MinPurgeThreshold, _cloneReferences.Count * 2);
+		}
+
+		private void DisposePools()
+		{
+			foreach (var pool in _pools.Values)
+			{
+				pool.Dispose();
+			}
+			
+			if (this != null)
+			{
+				foreach (Transform child in transform)
+				{
+					if (child != null && child.GetComponent<PoolContainer>() != null)
+					{
+						_purgeBuffer.Add(child.gameObject);
+					}
+				}
+
+				foreach (var container in _purgeBuffer)
+				{
+					if (Application.isPlaying)
+					{
+						Destroy(container);
+					}
+					else
+					{
+						DestroyImmediate(container);
+					}
+				}
+			}
+
+			_purgeBuffer.Clear();
 			_pools.Clear();
 			_cloneReferences.Clear();
+			_purgeThreshold = MinPurgeThreshold;
 		}
 
 		private GameObjectPool GetOrCreatePool(GameObject prefab, int capacity = 32)
@@ -179,13 +286,19 @@ namespace com.ktgame.manager.pool
 			if (!_pools.TryGetValue(prefab, out var pool))
 			{
 				var container = new GameObject($"[Pool] - {prefab.name}").AddComponent<PoolContainer>();
-				container.transform.SetParent(transform);
+				container.transform.SetParent(transform, false);
 				pool = new GameObjectPool(prefab, capacity);
 				pool.Container = container;
 				_pools.Add(prefab, pool);
 			}
 
 			return pool;
+		}
+
+		[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]
+		private static void LogWarning(string message, UnityEngine.Object context)
+		{
+			Debug.LogWarning(message, context);
 		}
 	}
 }

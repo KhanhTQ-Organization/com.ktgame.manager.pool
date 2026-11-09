@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace com.ktgame.manager.pool
 {
@@ -25,105 +26,93 @@ namespace com.ktgame.manager.pool
 			}
 
 			_prefab = prefab;
-			_stack = new Stack<GameObject>(capacity);
+			_stack = new Stack<GameObject>(Mathf.Max(0, capacity));
+		}
+		
+		public bool Contains(GameObject instance)
+		{
+			return instance != null &&
+			       instance.TryGetComponent(out PoolInstanceInfo info) &&
+			       info.IsInPool &&
+			       ReferenceEquals(info.Owner, this);
 		}
 
 		public GameObject Spawn()
 		{
 			ThrowIfDisposed();
 
-			GameObject obj = null;
-			while (_stack.Count > 0 && obj == null)
-			{
-				obj = _stack.Pop();
-			}
-
+			var obj = PopAlive();
 			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab);
 			}
 			else
 			{
-				obj.transform.SetParent(null);
+				obj.transform.SetParent(null, false);
+				ResetLocalTransform(obj.transform);
 				obj.SetActive(true);
 			}
 
-			PoolCallbackHelper.InvokeOnSpawn(obj);
-			return obj;
+			return OnSpawned(obj);
 		}
 
 		public GameObject Spawn(Transform parent)
 		{
 			ThrowIfDisposed();
 
-			GameObject obj = null;
-			while (_stack.Count > 0 && obj == null)
-			{
-				obj = _stack.Pop();
-			}
-
+			var obj = PopAlive();
 			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab, parent);
 			}
 			else
 			{
-				obj.transform.SetParent(parent);
+				obj.transform.SetParent(parent, false);
+				ResetLocalTransform(obj.transform);
 				obj.SetActive(true);
 			}
 
-			PoolCallbackHelper.InvokeOnSpawn(obj);
-			return obj;
+			return OnSpawned(obj);
 		}
 
 		public GameObject Spawn(Vector3 position, Quaternion rotation)
 		{
 			ThrowIfDisposed();
 
-			GameObject obj = null;
-			while (_stack.Count > 0 && obj == null)
-			{
-				obj = _stack.Pop();
-			}
-
+			var obj = PopAlive();
 			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab, position, rotation);
 			}
 			else
 			{
-				obj.transform.SetParent(null);
+				obj.transform.SetParent(null, false);
+				ResetLocalTransform(obj.transform);
 				obj.transform.SetPositionAndRotation(position, rotation);
 				obj.SetActive(true);
 			}
 
-			PoolCallbackHelper.InvokeOnSpawn(obj);
-			return obj;
+			return OnSpawned(obj);
 		}
 
 		public GameObject Spawn(Vector3 position, Quaternion rotation, Transform parent)
 		{
 			ThrowIfDisposed();
 
-			GameObject obj = null;
-			while (_stack.Count > 0 && obj == null)
-			{
-				obj = _stack.Pop();
-			}
-
+			var obj = PopAlive();
 			if (obj == null)
 			{
 				obj = UnityEngine.Object.Instantiate(_prefab, position, rotation, parent);
 			}
 			else
 			{
-				obj.transform.SetParent(parent);
+				obj.transform.SetParent(parent, false);
+				ResetLocalTransform(obj.transform);
 				obj.transform.SetPositionAndRotation(position, rotation);
 				obj.SetActive(true);
 			}
 
-			PoolCallbackHelper.InvokeOnSpawn(obj);
-			return obj;
+			return OnSpawned(obj);
 		}
 
 		public void Despawn(GameObject obj)
@@ -132,14 +121,23 @@ namespace com.ktgame.manager.pool
 
 			if (obj == null) return;
 
-			_stack.Push(obj);
+			var info = PoolInstanceInfo.GetOrAdd(obj, this);
+			if (info.IsInPool)
+			{
+				LogWarning($"[Pool] '{obj.name}' is already in the pool - duplicate Despawn ignored.", obj);
+				return;
+			}
+			
+			PoolCallbackHelper.InvokeOnDespawn(obj);
+
+			obj.SetActive(false);
 			if (Container != null)
 			{
-				obj.transform.SetParent(Container.transform);
+				obj.transform.SetParent(Container.transform, false);
 			}
-			obj.SetActive(false);
 
-			PoolCallbackHelper.InvokeOnDespawn(obj);
+			info.IsInPool = true;
+			_stack.Push(obj);
 		}
 
 		public void Prewarm(int count)
@@ -148,15 +146,15 @@ namespace com.ktgame.manager.pool
 
 			for (var i = 0; i < count; i++)
 			{
-				var obj = UnityEngine.Object.Instantiate(_prefab);
-				_stack.Push(obj);
-				obj.SetActive(false);
-				if (Container != null)
-				{
-					obj.transform.SetParent(Container.transform);
-				}
+				var obj = Container != null
+					? UnityEngine.Object.Instantiate(_prefab, Container.transform, false)
+					: UnityEngine.Object.Instantiate(_prefab);
 
+				var info = PoolInstanceInfo.GetOrAdd(obj, this);
 				PoolCallbackHelper.InvokeOnDespawn(obj);
+				obj.SetActive(false);
+				info.IsInPool = true;
+				_stack.Push(obj);
 			}
 		}
 
@@ -166,10 +164,7 @@ namespace com.ktgame.manager.pool
 
 			while (_stack.TryPop(out var obj))
 			{
-				if (obj != null)
-				{
-					UnityEngine.Object.Destroy(obj);
-				}
+				DestroyObject(obj);
 			}
 		}
 
@@ -177,20 +172,88 @@ namespace com.ktgame.manager.pool
 		{
 			ThrowIfDisposed();
 
-			while (_stack.Count > maxCapacity)
+			maxCapacity = Mathf.Max(0, maxCapacity);
+			while (_stack.Count > maxCapacity && _stack.TryPop(out var obj))
 			{
-				if (_stack.TryPop(out var obj) && obj != null)
-				{
-					UnityEngine.Object.Destroy(obj);
-				}
+				DestroyObject(obj);
 			}
 		}
 
 		public void Dispose()
 		{
-			ThrowIfDisposed();
+			if (_isDisposed)
+			{
+				return;
+			}
+
 			Clear();
 			_isDisposed = true;
+		}
+
+		private GameObject PopAlive()
+		{
+			while (_stack.TryPop(out var obj))
+			{
+				if (obj != null)
+				{
+					return obj;
+				}
+			}
+
+			return null;
+		}
+
+		private GameObject OnSpawned(GameObject obj)
+		{
+			var info = PoolInstanceInfo.GetOrAdd(obj, this);
+			info.IsInPool = false;
+			info.SpawnVersion++;
+
+			PoolCallbackHelper.InvokeOnSpawn(obj);
+			return obj;
+		}
+		
+		private void ResetLocalTransform(Transform target)
+		{
+			var source = _prefab.transform;
+			if (source is RectTransform sourceRect && target is RectTransform targetRect)
+			{
+				targetRect.anchorMin = sourceRect.anchorMin;
+				targetRect.anchorMax = sourceRect.anchorMax;
+				targetRect.pivot = sourceRect.pivot;
+				targetRect.sizeDelta = sourceRect.sizeDelta;
+				targetRect.anchoredPosition3D = sourceRect.anchoredPosition3D;
+			}
+			else
+			{
+				target.localPosition = source.localPosition;
+			}
+
+			target.localRotation = source.localRotation;
+			target.localScale = source.localScale;
+		}
+
+		private static void DestroyObject(GameObject obj)
+		{
+			if (obj == null)
+			{
+				return;
+			}
+
+			if (Application.isPlaying)
+			{
+				UnityEngine.Object.Destroy(obj);
+			}
+			else
+			{
+				UnityEngine.Object.DestroyImmediate(obj);
+			}
+		}
+
+		[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]
+		private static void LogWarning(string message, UnityEngine.Object context)
+		{
+			Debug.LogWarning(message, context);
 		}
 
 		[HideInCallstack, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT")]
